@@ -11,6 +11,27 @@ public class HexCell : MonoBehaviour
     [SerializeField]
     private HexCell[] neighbors;    // 相邻的Cell
 
+    // 是否有流入河流/流出河流
+    public bool HasIncomingRiver => hasIncomingRiver;
+    public bool HasOutgoingRiver => hasOutgoingRiver;
+    private bool hasIncomingRiver, hasOutgoingRiver;
+
+    // 流入河流/流出河流方向
+    public HexDirection IncomingRiver => incomingRiver;
+    public HexDirection OutgoingRiver => outgoingRiver;
+    private HexDirection incomingRiver, outgoingRiver;
+
+    // Cell中是否包含河流
+    public bool HasRiver => hasIncomingRiver || hasOutgoingRiver;
+
+    public bool HasRiverBeginOrEnd => hasIncomingRiver != hasOutgoingRiver;
+
+    public bool HasRiverThroughEdge(HexDirection direction)
+    {
+        return hasIncomingRiver && incomingRiver == direction ||
+               hasOutgoingRiver && outgoingRiver == direction;
+    }
+
     public int Elevation
     {
         get => elevation;
@@ -30,6 +51,16 @@ public class HexCell : MonoBehaviour
             Vector3 uiPosition = uiRect.localPosition;
             uiPosition.z = -position.y;
             uiRect.localPosition = uiPosition;
+
+            // 确保高度改变时，河流不会往高处走
+            if (hasOutgoingRiver && elevation < GetNeighbor(outgoingRiver).elevation)
+            {
+                RemoveOutgoingRiver();
+            }
+            if (hasIncomingRiver && elevation > GetNeighbor(incomingRiver).elevation)
+            {
+                RemoveIncomingRiver();
+            }
 
             // 当Elevation改变时，就是该刷新的时候
             Refresh();
@@ -97,17 +128,100 @@ public class HexCell : MonoBehaviour
     /// </summary>
     private void Refresh()
     {
-        if (chunk)
+        if (!chunk) return;
+        chunk.Refresh();
+        foreach (HexCell neighbor in neighbors)
         {
-            chunk.Refresh();
-            for (int i = 0; i < neighbors.Length; i++)
+            if (neighbor != null && neighbor.chunk != chunk)
             {
-                HexCell neighbor = neighbors[i];
-                if (neighbor != null && neighbor.chunk != chunk)
-                {
-                    neighbor.chunk.Refresh();
-                }
+                neighbor.chunk.Refresh();
             }
         }
+    }
+
+    /// <summary>
+    /// 刷新自己所属块
+    /// </summary>
+    private void RefreshSelfOnly()
+    {
+        chunk.Refresh();
+    }
+
+    /// <summary>
+    /// 设置流出河流
+    /// </summary>
+    public void SetOutgoingRiver(HexDirection direction)
+    {
+        if (hasOutgoingRiver && outgoingRiver == direction)
+        {
+            // 已经存在
+            return;
+        }
+        HexCell neighbor = GetNeighbor(direction);
+        if (!neighbor || elevation < neighbor.elevation)
+        {
+            // 水不能往上流
+            return;
+        }
+
+        RemoveOutgoingRiver();
+        if (hasIncomingRiver && incomingRiver == direction)
+        {
+            RemoveIncomingRiver();
+        }
+
+        hasOutgoingRiver = true;
+        outgoingRiver = direction;
+        RefreshSelfOnly();
+
+        neighbor.RemoveIncomingRiver();
+        neighbor.hasIncomingRiver = true;
+        neighbor.incomingRiver = direction.Opposite();
+        neighbor.RefreshSelfOnly();
+    }
+
+    /// <summary>
+    /// 移除流出河流
+    /// </summary>
+    public void RemoveOutgoingRiver()
+    {
+        if (!hasOutgoingRiver)
+        {
+            return;
+        }
+        hasOutgoingRiver = false;
+        RefreshSelfOnly();
+
+        // 移除了自己流出河流后，根据流出河流的方向获取相邻的Cell
+        // 再移除相邻Cell的流入河流
+        HexCell neighbor = GetNeighbor(outgoingRiver);
+        neighbor.hasIncomingRiver = false;
+        neighbor.RefreshSelfOnly();
+    }
+
+    /// <summary>
+    /// 移除流入河流
+    /// </summary>
+    public void RemoveIncomingRiver()
+    {
+        if (!hasIncomingRiver)
+        {
+            return;
+        }
+        hasIncomingRiver = false;
+        RefreshSelfOnly();
+
+        HexCell neighbor = GetNeighbor(incomingRiver);
+        neighbor.hasOutgoingRiver = false;
+        neighbor.RefreshSelfOnly();
+    }
+
+    /// <summary>
+    /// 移除河流
+    /// </summary>
+    public void RemoveRiver()
+    {
+        RemoveOutgoingRiver();
+        RemoveIncomingRiver();
     }
 }
